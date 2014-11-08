@@ -19,21 +19,46 @@
 
 using namespace std;
 
-
 const int VID_WIDTH = 299;
 const int VID_HEIGHT = 168;
 const int VID_FRAMES = 40;
 const int CHANNELS = 3;
+const int CSTATIC = .5;
+
+//all possible start times
+int start_time_at_index(int i){
+	return i*4;
+}
+
+int start_time_index(int start_time){
+	return start_time/4;
+}
+
+//all possible periods
+int period_at_index(int i){
+	return (i+1)*4;
+}
+
+int period_index(int period){
+	return period/4-1;
+}
+
 
 int stage1_cur_period = 12;
-
 
 //video frame=time, height=rows=ycoords, width=cols=xcoords, channels=rgb
 int video [VID_FRAMES][VID_HEIGHT][VID_WIDTH][CHANNELS];
 
+//[pixel][period] = optimal start time
+int biglookupthing [VID_WIDTH * VID_HEIGHT][VID_FRAMES/4];
 
-int biglookupthing [VID_WIDTH * VID_HEIGHT][42];
+void setOptimalStartTimeIndexForPeriodIndex(int pixel, int period_index, int start_time_index){
+	biglookupthing[pixel][period_index] = start_time_index;
+}
 
+int getOptimalStartTimeForPeriodIndex(int pixel, int period_index){
+	return start_time_at_index(biglookupthing[pixel][period_index]);
+}
 
 struct ForDataFn{
 	int numLab;
@@ -102,8 +127,67 @@ int MutuallyAssuredDestruction(vector<int>& list) {
 	return simpleFuckingMedian(deviations);
 }
 
+
+
+double gaussianLookup(double distanceSquared, double sigma){
+	return 1.0 / (sigma * sqrt(2.0 * 3.14159)) * exp(-distanceSquared / (2 * sigma * sigma));
+}
+
+int getIntensityAtPosition(int x, int y, int t){
+	t = (t + VID_FRAMES) % VID_FRAMES;
+	x = max(0, min(VID_WIDTH, x));
+	y = max(0, min(VID_HEIGHT, y));
+	return (video[t][y][x][0] * 212 + video[t][y][x][1] *  715 + video[t][y][x][2] * 72) / 1000;
+}
+
+
+int gaussianDifferenceNorm(int x0, int y0, int t0){
+	int spatialRadius = 10;
+	int temporalRadius = 10;
+	int totesMcGoats = 0;
+	for(int dx = -spatialRadius; dx < spatialRadius; dx++){
+		for(int dy = -spatialRadius; dy < spatialRadius; dy++){
+			for(int dt = -temporalRadius; dt < temporalRadius; dt++){
+				totesMcGoats +=
+					gaussianLookup(dt*dt,1.2)*
+					pow(
+						gaussianLookup(dx * dx + dy * dy + dt * dt, 0.9)
+							* getIntensityAtPosition(x0 + dx, y0 + dy, t0 + dt) -
+						gaussianLookup(dx * dx + dy * dy + (dt + 1) * (dt + 1), 0.9)
+							* getIntensityAtPosition(x0 + dy, y0 + dy, t0 + dt + 1)
+					, 2);
+			}
+		}
+	}
+	return sqrt(totesMcGoats);
+}
+
+
+
+int staticEnergy(int x, int y){
+	vector<int> spatioTemporalGaussianNorms(VID_FRAMES);
+	for (int t = 0; t < VID_FRAMES; ++t)
+	{
+		spatioTemporalGaussianNorms[t] = gaussianDifferenceNorm(x, y, t);
+	}
+
+	return CSTATIC*min(1,100*MutuallyAssuredDestruction(spatioTemporalGaussianNorms));
+}
+
+
+
+
+
+
+//temporal energy at this pixel w/ this period + start_time
 int getJiggawatts(int x, int y, int start_time, int period){
 	// printVec(pos);
+
+	int staticE = 0;
+	if (period==1)
+	{
+		staticE = staticEnergy(x,y);
+	}
 
 	vector<int> neighbors(period);
 
@@ -117,7 +201,7 @@ int getJiggawatts(int x, int y, int start_time, int period){
 	int magic = 1 + 400 * MutuallyAssuredDestruction(neighbors);
 	// printf("magic: %d\n",magic);
 
-	return (getTemporalChromaticNorm(x, y, start_time    , start_time + period    ) +
+	return staticE+(getTemporalChromaticNorm(x, y, start_time    , start_time + period    ) +
 			getTemporalChromaticNorm(x, y, start_time - 1, start_time + period - 1)) / magic;
 }
 
@@ -136,74 +220,7 @@ int lcm(int a, int b){
     return temp ? (a / temp * b) : 0;
 }
 
-
-
-// int terporalneighbordiff( int[][100][150][3] video, int[] x, int t){
-// 	return threenorm(video[x[0]][x[1]][t], video[x[0]][x[1]][t+1]); 
-// } 
-
-
-// int temporalEnergy( int video[][100][150][3], int x[], int start_time, int  period ) 
-// {
-
-// 	//neighbordiffs = arrayfun(terporalneighbordiff, start_time:(start_time+period)):
-
-// 	// int[] neighbordiffs = new int[period];
-// 	std::vector<int> neighbors(period);
-// 	for (int t = 0; t < period; t++){
-// 		neighbors[t] = terporalneighbordiff(start_time + t);
-// 	}
-
-
-// 	for (int t = 0; t < period; t++){
-// 		// std::vector<int> array(size);
-// 		neighbordiffs[t] = terporalneighbordiff(video, start_time+t);
-// 	}
-
-// 	int oneoverwhymda = (1+400* mad(neighbordiffs));
-
-// 	// energy = (norm(V( x(1), x(2), start_time )    - V( x(1), x(2), start_time + period))^2 ... 
-// 	//         + norm(V( x(1), x(2), start_time -1 ) - V( x(1), x(2), start_time + period - 1))^2)...
-// 	//         / oneoverwhymda;
-// 	return (threeselfdot(video[x[0]][x[1]][start_time], video[x[0]][x[1]][start_time+period])
-// 		 + threeselfdot(video[x[0]][x[1]][start_time-1], video[x[0]][x[1]][start_time+period-1]))
-// 		 / oneoverwhymda;
-//  }
-
-
-
-
-
-// function e = spatula(V, x, z, s_x, s_z, p_x, p_z)
-//     psi = 0;
-//     T = lcm(p_x, p_z);
-//     for t = 0:(T-1)
-//         fi_x = fie(t, s_x, p_x);
-//         fi_z = fie(t, s_z, p_z);
-//         psi = psi + norm(V(x(1), x(2), fi_x, :) - V(x(1), x(2), fi_z, :))^2;
-//         psi = psi + norm(V(z(1), z(2), fi_x, :) - V(z(1), z(2), fi_z, :))^2;
-//     end 
-//     psi = psi * 1.0/T;
-//     e = psi * lambda(V, x, z, T);
-// end
-
-// function phi = fie(t, s_x, p_x)
-//     phi = s_x - mod(s_x, p_x) + mod(t, p_x);
-//     if mod(t, p_x) < mod(s_x, p_x)
-//        phi = phi + p_x; 
-//     end
-// end
-
-// function lamb = lambda(V, x, z, T)
-//     yolo = zeros(T, 1);
-//     for t = 0:(T-1)
-//        yolo(t) = norm(V(x(1), x(2), t, :) - V(z(1), z(2), t, :))^2;
-//     end
-//     madness = mad(yolo, 1);
-//     lamb = 1.0/(1 + 100 * madness);
-// end
-
-
+//time start time pixel number
 int fie(int t, int sx, int px) {
        int phi = sx - (sx % px) + (t % px);
        if( (t % px) < (sx % px)) {
@@ -233,7 +250,7 @@ int invlambda(int x1, int y1, int x2, int y2, int T) {
 	return 1 + 100 * MutuallyAssuredDestruction( spatialAdjacentPairs );
 }
 
-
+//xy, start time, period
 int muskEnergy(int x1, int y1, int x2, int y2, int s1, int s2, int p1, int p2){
 	int psi = 0;
 	int T = lcm(p1, p2);
@@ -260,9 +277,15 @@ int muskEnergyWrapperGivenPeriod(int p1, int p2, int l1, int l2){
 
 ////////////////////////////////////////////////////////////////////////////////
 //given a global period, what are the best start times?
-void RockNRollGivenPeriod(int width,int height,int num_pixels,int num_labels)
+//executed in a for loop over each period
+void RockNRollGivenPeriod(int width, int height, int num_pixels, int period)
 {
 	// printf("got here");
+
+	stage1_cur_period = period;
+
+
+	int num_labels = VID_FRAMES/4;
 
 	int *result = new int[num_pixels];   // stores result of optimization
 
@@ -270,9 +293,10 @@ void RockNRollGivenPeriod(int width,int height,int num_pixels,int num_labels)
 	int *data = new int[num_pixels*num_labels];
 	// printf("data\n");
 	for ( int i = 0; i < num_pixels; i++ ){
-		for (int l = 0; l < num_labels; l++ ){
+		for (int l = 0; l < num_labels; l++ ){ //l is the index of the start time
+
 			// printf("getting jiggawatts %d, %d, %d, %d\n", i/width, i % width, l*4, stage1_cur_period);
-			data[i*num_labels+l] = getJiggawatts(i/width, i % width, l*4, stage1_cur_period);
+			data[i*num_labels+l] = getJiggawatts(i/width, i % width, start_time_at_index(l), period);
 			// printf("%d: %d \n", i * num_labels, data[i*num_labels+l]);
 		}
 	}
@@ -299,9 +323,10 @@ void RockNRollGivenPeriod(int width,int height,int num_pixels,int num_labels)
 		printf("has optimized\n");
 		printf("\nAfter optimization energy is %d\n",gc->compute_energy());
 
-		for ( int  i = 0; i < num_pixels; i++ ){
-			result[i] = gc->whatLabel(i);
-			printf(" %d", result[i]);
+		for ( int  pixel = 0; pixel < num_pixels; pixel++ ){
+			result[pixel] = gc->whatLabel(pixel);
+			setOptimalStartTimeIndexForPeriodIndex(pixel, period_index(period), result[pixel]);
+			// printf(" %d", result[i]);
 		}
 
 		delete gc;
@@ -317,28 +342,36 @@ void RockNRollGivenPeriod(int width,int height,int num_pixels,int num_labels)
 
 
 int muskEnergyWrapperStage2(int p1, int p2, int l1, int l2){
-	return muskEnergy( p1 % VID_WIDTH, p1/VID_WIDTH,  p2 % VID_WIDTH, p2/VID_WIDTH, biglookupthing[p1][l1], biglookupthing[p1][l2], l1, l2);
+	// printf("called musk energy stage 2\n");
+
+	return muskEnergy( p1 % VID_WIDTH, p1/VID_WIDTH,  p2 % VID_WIDTH, p2/VID_WIDTH, getOptimalStartTimeForPeriodIndex(p1,l1), getOptimalStartTimeForPeriodIndex(p2,l2), period_at_index(l1), period_at_index(l2));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 //given the best start times for each pixel for each period, what are the best per pixel periods?
-void RockNRollGivenStartTimes(int width,int height,int num_pixels, int num_labels)
+void RockNRollGivenStartTimes(int width,int height,int num_pixels)
 {
+
+	int num_labels = VID_FRAMES/4-1;
 
 	int *result = new int[num_pixels];   // stores result of optimization
 
 	// first set up the array for data costs
+	// l is the period of the pixel
+	printf("starting rnr given start times\n");
+
 	int *data = new int[num_pixels*num_labels];
 	for ( int i = 0; i < num_pixels; i++ ){
-		for (int l = 0; l < num_labels; l++ ){
+		for (int l = 0; l < num_labels; l++ ){ //l is the period in the optimal period / start time pair
 			// std::vector<int> pos(2);
 			// int a[] = {num_pixels/width, num_pixels % width};
 			// vector<int> pos(a, a + 2);
 			// pos.push_back(num_pixels/width);
 			// pos.push_back(num_pixels % width);
-			data[i*num_labels+l] = getJiggawatts(num_pixels/width, num_pixels % width, biglookupthing[i][l], l);
+			data[i*num_labels+l] = getJiggawatts(num_pixels/width, num_pixels % width, getOptimalStartTimeForPeriodIndex(i,l), period_at_index(l));
 		}
 	}
+	printf("finished populating data array\n");
 
 	try{
 		GCoptimizationGridGraph *gc = new GCoptimizationGridGraph(width,height,num_labels);
@@ -353,12 +386,14 @@ void RockNRollGivenStartTimes(int width,int height,int num_pixels, int num_label
 		// smoothness comes from function pointer
 		gc->setSmoothCost(&muskEnergyWrapperStage2);
 
-		printf("\nBefore optimization energy is %d",gc->compute_energy());
+		printf("\nBefore _final_ optimization energy is %d",gc->compute_energy());
 		gc->expansion(2);// run expansion for 2 iterations. For swap use gc->swap(num_iterations);
 		printf("\nAfter optimization energy is %d",gc->compute_energy());
 
-		for ( int  i = 0; i < num_pixels; i++ )
+		for ( int  i = 0; i < num_pixels; i++ ){
 			result[i] = gc->whatLabel(i);
+			printf("%d ", result[i]*4);			
+		}
 
 		delete gc;
 	}
@@ -380,13 +415,13 @@ int main(int argc, char **argv)
 	// int height = 5;
 	// int num_pixels = width*height;
 	// int num_labels = 7;
-
+	printf("starting\n");
 
 	FILE *fileptr;
     unsigned char *buffer;
     long filelen;
 
-    fileptr = fopen("../../galahad/nine.bin", "rb");  // Open the file in binary mode
+    fileptr = fopen("../stab/nine.bin", "rb");  // Open the file in binary mode
     fseek(fileptr, 0, SEEK_END);          // Jump to the end of the file
     filelen = ftell(fileptr);             // Get the current byte offset in the file
     rewind(fileptr);                      // Jump back to the beginning of the file
@@ -411,10 +446,18 @@ int main(int argc, char **argv)
 			}
 		}
 	}
-	printf("dun\n");
+	printf("finished reading file\n");
 
+	for (int i = 4; i < VID_FRAMES; i += 4) {
+		//fill in the appropriate entries in biglookup
+		printf("started %d %d\n",i,VID_FRAMES);
+		RockNRollGivenPeriod(VID_WIDTH, VID_HEIGHT, VID_WIDTH*VID_HEIGHT, i);
+		printf("finished %d %d\n\n",i,VID_FRAMES);
+	}
 
-	RockNRollGivenPeriod(VID_WIDTH, VID_HEIGHT, VID_WIDTH*VID_HEIGHT, 30);
+	printf("Stage 1 complete\n");
+
+	RockNRollGivenStartTimes(VID_WIDTH, VID_HEIGHT, VID_WIDTH*VID_HEIGHT);
 
 	printf("\n  Finished %d (%d) clock per sec %d\n",clock()/CLOCKS_PER_SEC,clock(),CLOCKS_PER_SEC);
 
