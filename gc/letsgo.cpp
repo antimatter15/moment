@@ -19,9 +19,9 @@
 
 using namespace std;
 
-const int VID_WIDTH = 299;
-const int VID_HEIGHT = 168;
-const int VID_FRAMES = 40;
+const int VID_WIDTH = 320;
+const int VID_HEIGHT = 181;
+const int VID_FRAMES = 149;
 const int CHANNELS = 3;
 const int CSTATIC = .5;
 
@@ -270,7 +270,7 @@ int muskEnergy(int x1, int y1, int x2, int y2, int s1, int s2, int p1, int p2){
 
 
 int muskEnergyWrapperGivenPeriod(int p1, int p2, int l1, int l2){
-	return muskEnergy( p1 % VID_WIDTH, p1/VID_WIDTH,  p2 % VID_WIDTH, p2/VID_WIDTH, l1, l2, stage1_cur_period, stage1_cur_period);
+	return muskEnergy( p1 % VID_WIDTH, p1/VID_WIDTH,  p2 % VID_WIDTH, p2/VID_WIDTH, start_time_at_index(l1), start_time_at_index(l2), stage1_cur_period, stage1_cur_period);
 }
 
 
@@ -343,7 +343,6 @@ void RockNRollGivenPeriod(int width, int height, int num_pixels, int period)
 
 int muskEnergyWrapperStage2(int p1, int p2, int l1, int l2){
 	// printf("called musk energy stage 2\n");
-
 	return muskEnergy( p1 % VID_WIDTH, p1/VID_WIDTH,  p2 % VID_WIDTH, p2/VID_WIDTH, getOptimalStartTimeForPeriodIndex(p1,l1), getOptimalStartTimeForPeriodIndex(p2,l2), period_at_index(l1), period_at_index(l2));
 }
 
@@ -368,7 +367,7 @@ void RockNRollGivenStartTimes(int width,int height,int num_pixels)
 			// vector<int> pos(a, a + 2);
 			// pos.push_back(num_pixels/width);
 			// pos.push_back(num_pixels % width);
-			data[i*num_labels+l] = getJiggawatts(num_pixels/width, num_pixels % width, getOptimalStartTimeForPeriodIndex(i,l), period_at_index(l));
+			data[i*num_labels+l] = getJiggawatts(i/width, i % width, getOptimalStartTimeForPeriodIndex(i,l), period_at_index(l));
 		}
 	}
 	printf("finished populating data array\n");
@@ -392,7 +391,7 @@ void RockNRollGivenStartTimes(int width,int height,int num_pixels)
 
 		for ( int  i = 0; i < num_pixels; i++ ){
 			result[i] = gc->whatLabel(i);
-			printf("%d ", result[i]*4);			
+			printf("%d ", period_at_index(result[i]));
 		}
 
 		delete gc;
